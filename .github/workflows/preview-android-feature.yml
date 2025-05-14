@@ -1,4 +1,4 @@
-name: Preview Android Build (Feature Branch)
+name: Preview Android Build (Feature Branch) (UAT)
 
 on:
   pull_request:
