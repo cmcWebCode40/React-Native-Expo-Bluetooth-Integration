@@ -37,26 +37,28 @@
 #         id: eas_build
 #         run: eas build --platform android --profile preview --non-interactive
 
-name: Test PR Comment
+name: Sample PR Comment for Testing
 
 on:
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'Pull Request Number'
-        required: true
-        type: string
+  pull_request:
+    branches: [dev]
+    types: [opened, reopened, synchronize]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
 
 jobs:
   test:
+    name: Mocked Test Scripts
+    if: startsWith(github.head_ref, 'feature/')
     runs-on: ubuntu-latest
 
     steps:
-      - name: Echo test 1
-        run: echo "Running mocked test 1"
+      - name: Mock Script 1
+        run: echo "Running mock test script 1"
 
-      - name: Echo test 2
-        run: echo "Running mocked test 2"
+      - name: Mock Script 2
+        run: echo "Running mock test script 2"
 
       - name: Add mock link as PR comment
         uses: actions/github-script@v7
@@ -64,7 +66,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             github.rest.issues.createComment({
-              issue_number: Number('${{ github.event.inputs.pr_number }}'),
+              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: '🔗 [Sample Link for Test Build](https://example.com/mock-build)'
