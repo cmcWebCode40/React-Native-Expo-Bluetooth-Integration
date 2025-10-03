@@ -75,5 +75,13 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🔗 [Sample Link for Test Build](https://example.com/mock-build)'
+              body: `## 📦 Test Build Available
+
+            Hi QA Team! 👋
+
+              A new test build has been generated for this pull request and is ready for testing.
+
+             **📱 Download APK:** [Click here to download](https://example.com/mock-build)
+
+            Please test the new changes and report any issues found. Thank you! 🙏`
             })
