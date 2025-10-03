@@ -37,7 +37,56 @@
 #         id: eas_build
 #         run: eas build --platform android --profile preview --non-interactive
 
-name: Sample PR Comment for Testing
+# name: Sample PR Comment for Testing
+
+# on:
+#   pull_request:
+#     branches: [dev]
+#     types: [opened, reopened, synchronize]
+#     paths-ignore:
+#       - "**.md"
+#       - "docs/**"
+
+# jobs:
+#   test:
+#     name: Mocked Test Scripts
+#     if: startsWith(github.head_ref, 'feature/')
+#     runs-on: ubuntu-latest
+    
+#     # Add this permissions block
+#     permissions:
+#       contents: read
+#       issues: write
+#       pull-requests: write
+
+#     steps:
+#       - name: Mock Script 1
+#         run: echo "Running mock test script 1"
+
+#       - name: Mock Script 2
+#         run: echo "Running mock test script 2"
+
+#       - name: Add mock link as PR comment
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ secrets.GITHUB_TOKEN }}
+#           script: |
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: `## 📦 Test Build Available
+
+#             Hi QA Team! 👋
+
+#               A new test build has been generated for this pull request and is ready for testing.
+
+#              **📱 Download APK:** [Click here to download](https://example.com/mock-build)
+
+#             Please test the new changes and report any issues found. Thank you! 🙏`
+#             })
+
+name: Preview Android Build (Feature Branch)
 
 on:
   pull_request:
@@ -48,40 +97,122 @@ on:
       - "docs/**"
 
 jobs:
-  test:
-    name: Mocked Test Scripts
+  build:
+    name: Build Android Preview
     if: startsWith(github.head_ref, 'feature/')
     runs-on: ubuntu-latest
-    
-    # Add this permissions block
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-
     steps:
-      - name: Mock Script 1
-        run: echo "Running mock test script 1"
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Mock Script 2
-        run: echo "Running mock test script 2"
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: yarn
 
-      - name: Add mock link as PR comment
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EAS_TOKEN }}
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Trigger EAS Android build (preview)
+        id: eas_build
+        continue-on-error: true
+        run: |
+          eas build --platform android --profile preview --non-interactive --json > eas_output.json
+          cat eas_output.json
+          echo "BUILD_EXIT_CODE=$?" >> $GITHUB_ENV
+
+      - name: Extract build information
+        id: extract_info
+        if: always()
+        run: |
+          if [ -f eas_output.json ]; then
+            BUILD_ID=$(jq -r '.[] | select(.platform == "android") | .id' eas_output.json 2>/dev/null || echo "")
+            BUILD_URL=$(jq -r '.[] | select(.platform == "android") | .buildDetailsUrl' eas_output.json 2>/dev/null || echo "")
+            ARTIFACT_URL=$(jq -r '.[] | select(.platform == "android") | .artifacts.buildUrl' eas_output.json 2>/dev/null || echo "")
+            
+            echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
+            echo "BUILD_URL=$BUILD_URL" >> $GITHUB_ENV
+            echo "ARTIFACT_URL=$ARTIFACT_URL" >> $GITHUB_ENV
+          fi
+
+      - name: Wait for build completion and get APK link
+        id: wait_build
+        if: env.BUILD_ID != '' && env.BUILD_EXIT_CODE == '0'
+        timeout-minutes: 30
+        run: |
+          BUILD_ID="${{ env.BUILD_ID }}"
+          echo "Waiting for build $BUILD_ID to complete..."
+          
+          while true; do
+            STATUS=$(eas build:view $BUILD_ID --json | jq -r '.[0].status')
+            echo "Current status: $STATUS"
+            
+            if [ "$STATUS" = "finished" ]; then
+              APK_URL=$(eas build:view $BUILD_ID --json | jq -r '.[0].artifacts.buildUrl')
+              echo "APK_URL=$APK_URL" >> $GITHUB_ENV
+              echo "Build completed successfully!"
+              break
+            elif [ "$STATUS" = "errored" ] || [ "$STATUS" = "canceled" ]; then
+              echo "BUILD_FAILED=true" >> $GITHUB_ENV
+              echo "Build failed with status: $STATUS"
+              break
+            fi
+            
+            sleep 30
+          done
+
+      - name: Comment success on PR
         uses: actions/github-script@v7
+        if: env.APK_URL != '' && env.BUILD_FAILED != 'true'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const body = `## 🚀 Android Preview Build Ready!
+            
+            ✅ **Build Status:** Successful
+            
+            📦 **Download APK:** [Click here to download](${process.env.APK_URL})
+            
+            📊 **Build Details:** [View on Expo](${process.env.BUILD_URL})
+            
+            ---
+            *Build ID: \`${process.env.BUILD_ID}\`*`;
+            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## 📦 Test Build Available
+              body: body
+            });
 
-            Hi QA Team! 👋
-
-              A new test build has been generated for this pull request and is ready for testing.
-
-             **📱 Download APK:** [Click here to download](https://example.com/mock-build)
-
-            Please test the new changes and report any issues found. Thank you! 🙏`
-            })
+      - name: Comment failure on PR
+        uses: actions/github-script@v7
+        if: always() && (env.BUILD_FAILED == 'true' || env.BUILD_EXIT_CODE != '0')
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const buildUrl = process.env.BUILD_URL || 'Build URL not available';
+            const body = `## ❌ Android Preview Build Failed
+            
+            ⚠️ **Build Status:** Failed
+            
+            🔗 **Error Details:** [View build logs on Expo](${buildUrl})
+            
+            Please check the logs for more information about the failure.
+            
+            ---
+            *Build ID: \`${process.env.BUILD_ID || 'N/A'}\`*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
