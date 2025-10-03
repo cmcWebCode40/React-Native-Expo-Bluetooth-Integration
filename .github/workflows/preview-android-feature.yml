@@ -52,6 +52,12 @@ jobs:
     name: Mocked Test Scripts
     if: startsWith(github.head_ref, 'feature/')
     runs-on: ubuntu-latest
+    
+    # Add this permissions block
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
 
     steps:
       - name: Mock Script 1
